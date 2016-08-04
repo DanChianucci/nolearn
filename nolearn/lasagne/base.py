@@ -180,15 +180,23 @@ def objective(layers,
     return loss
 
 
+def deprecated(test, msg, fatal=False):
+    if test and fatal:
+        raise ValueError(msg)
+    elif test:
+        warn(msg)
+    return test
+
+
 class NeuralNet(BaseEstimator):
-    """A scikit-learn estimator based on Lasagne.
+    """
+      A scikit-learn estimator based on Lasagne.
 
     """
     def __init__(
         self,
         layers,
         update=nesterov_momentum,
-        loss=None,  # BBB
         objective=objective,
         objective_loss_function=None,
         batch_iterator_train=BatchIterator(batch_size=128),
@@ -199,7 +207,6 @@ class NeuralNet(BaseEstimator):
         custom_scores=None,
         scores_train=None,
         scores_valid=None,
-        X_tensor_type=None,
         y_tensor_type=None,
         use_label_encoder=False,
         on_batch_finished=None,
@@ -237,53 +244,41 @@ class NeuralNet(BaseEstimator):
                                      parameter.
 
         """
-        if loss is not None:
-            raise ValueError(
-                "The 'loss' parameter was removed, please use "
-                "'objective_loss_function' instead.")  # BBB
-        if hasattr(objective, 'get_loss'):
-            raise ValueError(
-                "The 'Objective' class is no longer supported, please "
-                "use 'nolearn.lasagne.objective' or similar.")  # BBB
-        if objective_loss_function is None:
-            objective_loss_function = (
-                squared_error if regression else categorical_crossentropy)
 
-        if hasattr(self, 'train_test_split'):  # BBB
-            warn("The 'train_test_split' method has been deprecated, please "
-                 "use the 'train_split' parameter instead.")
+        msg = "The '%s' parameter is no longer supported. Use '%s' instead"
+
+        ### Take care of error deprecations up front ###
+        deprecated('loss' in kwargs,
+                   msg % ("loss","objective_loss_function"),True)
+        deprecated('X_tensor_type' in kwargs,
+                   "The X_tensor_type is no longer needed",True)
+        deprecated('batch_iterator' in kwargs,
+                   msg % ("batch_iterator", 'batch_iterator_train/_test'), True)
+        deprecated(hasattr(objective, 'get_loss'),
+                   msg % ("objective class", "nolearn.lasagne.objective"), True)
+
+        ### Then take care of fixable deprecations up front ###
+        if deprecated(hasattr(self, 'train_test_split'),
+                      msg % ("self.train_test_split", "train_split")):
             train_split = LegacyTrainTestSplit(
                 eval_size=kwargs.pop('eval_size', 0.2))
 
-        if 'eval_size' in kwargs:  # BBB
-            warn("The 'eval_size' argument has been deprecated, please use "
-                 "the 'train_split' parameter instead, e.g.\n"
-                 "train_split=TrainSplit(eval_size=0.4)")
+        if deprecated('eval_size' in kwargs,
+                      msg % ("eval_size","train_split=TrainSplit(eval_size)")):
             train_split.eval_size = kwargs.pop('eval_size')
 
-        if y_tensor_type is None:
-            if regression:
-                y_tensor_type = T.TensorType(
-                    theano.config.floatX, (False, False))
-            else:
-                y_tensor_type = T.ivector
+        if deprecated('custom_score' in kwargs,
+                      msg % ("custom_score", "custom_scores=[custom_score]")):
+            custom_scores = custom_scores or []
+            custom_scores.append(kwargs.pop('custom_score'))
 
-        if X_tensor_type is not None:
-            raise ValueError(
-                "The 'X_tensor_type' parameter has been removed. "
-                "It's unnecessary.")  # BBB
+        ### Then initialize construct the network ###
+        objective_loss_function = objective_loss_function or \
+            (squared_error if regression else categorical_crossentropy)
 
-        if 'custom_score' in kwargs:
-            warn("The 'custom_score' argument has been deprecated, please use "
-                 "the 'custom_scores' parameter instead, which is just "
-                 "a list of custom scores e.g.\n"
-                 "custom_scores=[('first output', lambda y1, y2: abs(y1[0,0]-y2[0,0])), ('second output', lambda y1,y2: abs(y1[0,1]-y2[0,1]))]")
+        y_tensor_type = y_tensor_type or \
+            (T.fmatrix if regression else T.ivector)
 
-            # add it to custom_scores
-            if custom_scores is None:
-                custom_scores = [kwargs.pop('custom_score')]
-            else:
-                custom_scores.append(kwargs.pop('custom_score'))
 
         if isinstance(layers, Layer):
             layers = _list([layers])
@@ -310,9 +305,6 @@ class NeuralNet(BaseEstimator):
         self.check_input = check_input
         self.verbose = verbose
         if self.verbose:
-            # XXX: PrintLog should come before any other handlers,
-            # because early stopping will otherwise cause the last
-            # line not to be printed
             self.on_epoch_finished.append(PrintLog())
             self.on_training_started.append(PrintLayerInfo())
 
@@ -323,11 +315,7 @@ class NeuralNet(BaseEstimator):
 
         self.train_history_ = []
 
-        if 'batch_iterator' in kwargs:  # BBB
-            raise ValueError(
-                "The 'batch_iterator' argument has been replaced. "
-                "Use 'batch_iterator_train' and 'batch_iterator_test' instead."
-                )
+
 
     def _check_for_unused_kwargs(self):
         names = self.layers_.keys() + ['update', 'objective']
